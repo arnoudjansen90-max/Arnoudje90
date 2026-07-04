@@ -461,6 +461,598 @@ function render(){
     const oudTarief = !l.bron && !l.eigen && l.prijs!=null;
     return {...l,km,tijd,transport,stort,aanvoerKosten,totaal,oudTarief};
   });
+  rijen.sort((a,b)=>{
+    // Alleen locaties zonder prijs onderaan; oude tarieven mengen gewoon mee (met melding)
+    if((a.totaal==null)!==(b.totaal==null)) return a.totaal==null?1:-1;
+    if(state.sorteer==="dichtstbij") return a.km-b.km;
+    if(a.totaal==null&&b.totaal==null) return a.km-b.km;
+    return a.totaal-b.totaal;
+  });
+
+  const isLossen=state.tab.startsWith("lossen");
+  const kostLabel=isLossen?"Storten":"Materiaal";
+
+  main.innerHTML = rijen.map((l,i)=>{
+    const top = i===0 && state.sorteer==="goedkoopst" && l.totaal!=null;
+    const open = state.open===i;
+    const badges =
+      (top?'<span class="badge b-top">GOEDKOOPST</span>':"")+
+      (l.eigen?'<span class="badge b-eigen">EIGEN TERREIN</span>':"")+
+      (l.oudTarief?'<span class="badge b-oud">OUD TARIEF</span>':"")+
+      (l.vervuild?'<span class="badge b-verv">VERVUILD</span>':"")+
+      (l.trechter?'<span class="badge b-tre">TRECHTER</span>':"");
+    const perton = l.prijs!=null ? l.prijs+(l.aanvoer||0) : null;
+    const prijsblok = l.totaal!=null
+      ? '<div class="totaal'+(top?" groen":"")+'">'+eur(l.totaal)+'</div><div class="perton">'+eur2(perton)+'/'+(l.m3?'m³':'t')+'</div>'
+      : '<div class="onbekend">prijs<br>onbekend</div>';
+    let detail="";
+    if(open){
+      let asnBlok="";
+      if(isLossen && !l.noAsn){
+        if(state.asnOpen===i){
+          const g = asnData.grondstof || standaardGrondstof(l);
+          asnBlok = '<div class="asn">'
+            +'<h4>ASN AANVRAGEN</h4>'
+            +'<p class="uitleg">Vul in en verstuur — ontdoener en transporteur (Methorst, incl. VIHB) worden automatisch meegestuurd. Planning ontvangt automatisch een cc.</p>'
+            +'<label for="asn-werk">Werklocatie (herkomst)</label>'
+            +'<input id="asn-werk" placeholder="Bijv. Hoofdstraat 12, Ede" value="'+esc(asnData.werk)+'">'
+            +'<label for="asn-kent">Kenteken voertuig</label>'
+            +'<input id="asn-kent" placeholder="Bijv. BX-HN-81" autocapitalize="characters" value="'+esc(asnData.kenteken)+'">'
+            +'<label for="asn-grond">Soort grondstof / afvalstof</label>'
+            +'<select id="asn-grond">'+GRONDSTOFFEN.map(x=>'<option'+(x===g?" selected":"")+'>'+esc(x)+'</option>').join("")+'</select>'
+            +'<label>Standaard mail (vult automatisch mee)</label>'
+            +'<div class="preview" id="asn-preview"></div>'
+            +'<div class="foutmelding" id="asn-fout" style="display:none">Vul eerst werklocatie en kenteken in.</div>'
+            +(state.kopieOk?'<div class="gelukt">✓ Aanvraag gekopieerd — plak in mail of WhatsApp</div>':"")
+            +'<div class="acties">'
+            +'<button class="actie" id="asn-mail">✉ Mail openen</button>'
+            +'<button class="actie lijn" id="asn-kopieer">⧉ Kopieer</button>'
+            +'</div></div>';
+        } else {
+          asnBlok = '<div class="acties" style="margin-top:8px"><button class="actie lijn" id="asn-open">📄 ASN aanvragen</button></div>';
+        }
+      }
+      detail='<div class="detail"><div class="bk">'
+        +'<div class="bkr"><span>Transport '+esc((VOERTUIGEN.find(v=>v.id===state.voertuig)||VOERTUIGEN[0]).label.toLowerCase())+' '+(state.retour?"(retour)":"(enkele reis)")+'</span><span>'+eur(l.transport)+'</span></div>'
+        +(l.stort!=null?'<div class="bkr"><span>'+kostLabel+' — '+state.ton+' '+(l.m3?'m³':'t')+' × '+eur2(l.prijs)+'</span><span>'+eur(l.stort)+'</span></div>':"")
+        +(l.aanvoer!=null?'<div class="bkr"><span>'+esc(l.aanvoerlabel||"Aanvoer")+' — '+state.ton+' '+(l.m3?'m³':'t')+' × '+eur2(l.aanvoer)+'</span><span>'+eur(l.aanvoerKosten)+'</span></div>':"")
+        +'<div class="bkr bkt"><span>Totaal</span><span>'+(l.totaal!=null?eur(l.totaal):"—")+'</span></div></div>'
+        +'<div class="adres">'+esc(l.adres)+'</div>'
+        +(l.mail?'<div class="soortnote">✉ '+esc(l.mail)+'</div>':"")
+        +(l.soort?'<div class="soortnote">Soort: '+esc(l.soort)+'</div>':"")
+        +'<div class="acties">'
+        +'<a class="actie" target="_blank" rel="noreferrer" href="https://www.google.com/maps/dir/?api=1&destination='+l.lat+','+l.lng+'&travelmode=driving">▸ Navigeer</a>'
+        +(l.tel?'<a class="actie lijn" href="tel:'+esc(l.tel)+'">✆ Bellen</a>':"")
+        +'</div>'+asnBlok+'</div>';
+    }
+    return '<article class="kaart'+(top?" top":"")+'">'
+      +'<button class="kop" data-i="'+i+'">'
+      +'<div style="min-width:0;flex:1"><div class="badges">'+badges+'</div>'
+      +'<div class="naam">'+esc(l.naam)+'</div>'
+      +'<div class="plaats">'+esc(l.plaats)+' · '+Math.round(l.km)+' km · ± '+Math.round(l.tijd)+' min</div></div>'
+      +'<div class="prijsblok">'+prijsblok+'</div></button>'+detail+'</article>';
+  }).join("")
+  +'<p class="voetnoot">Reistijd is een schatting voor vrachtverkeer (hemelsbreed × 1,3, gem. 38–63 km/u). Transportkosten worden berekend op basis van reistijd en het gekozen voertuig'+(state.retour?" (× 2 retour)":"")+'. Coördinaten zijn geschat op adres — controleer bij eerste bezoek.</p>';
+
+  main.querySelectorAll(".kop").forEach(b=>{
+    b.onclick=()=>{ const i=+b.dataset.i; state.open = state.open===i?null:i; state.asnOpen=null; state.kopieOk=false; render(); };
+  });
+
+  // ASN handlers
+  const rij = state.open!=null ? rijen[state.open] : null;
+  const openKnop=document.getElementById("asn-open");
+  if(openKnop) openKnop.onclick=()=>{ state.asnOpen=state.open; state.kopieOk=false; render(); };
+  const wI=document.getElementById("asn-werk"), kI=document.getElementById("asn-kent"), gI=document.getElementById("asn-grond");
+  const pv=document.getElementById("asn-preview");
+  const updatePreview=()=>{
+    if(!pv || !rij) return;
+    const {onderwerp,tekst}=asnTekst(rij);
+    const aan = rij.mail ? rij.mail : "(mailadres verwerker nog onbekend — zelf invullen)";
+    pv.textContent="Aan: "+aan+"\nCc: "+ASN_CC+"\nOnderwerp: "+onderwerp+"\n\n"+tekst;
+  };
+  if(wI) wI.oninput=()=>{ asnData.werk=wI.value; updatePreview(); };
+  if(kI) kI.oninput=()=>{ asnData.kenteken=kI.value; updatePreview(); };
+  if(gI) gI.onchange=()=>{ asnData.grondstof=gI.value; updatePreview(); };
+  updatePreview();
+  const toonFout=()=>{
+    const f=valideerAsn();
+    document.getElementById("asn-fout").style.display = f.length?"block":"none";
+    if(wI) wI.classList.toggle("fout",f.includes("werk"));
+    if(kI) kI.classList.toggle("fout",f.includes("kenteken"));
+    return f.length===0;
+  };
+  const mailKnop=document.getElementById("asn-mail");
+  if(mailKnop && rij) mailKnop.onclick=()=>{
+    if(!toonFout()) return;
+    const {onderwerp,tekst}=asnTekst(rij);
+    window.location.href="mailto:"+encodeURIComponent(rij.mail||"")
+      +"?cc="+encodeURIComponent(ASN_CC)
+      +"&subject="+encodeURIComponent(onderwerp)
+      +"&body="+encodeURIComponent(tekst);
+  };
+  const kopKnop=document.getElementById("asn-kopieer");
+  if(kopKnop && rij) kopKnop.onclick=()=>{
+    if(!toonFout()) return;
+    const {tekst}=asnTekst(rij);
+    const klaar=()=>{ state.kopieOk=true; render(); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(tekst).then(klaar).catch(()=>{ fallbackKopie(tekst); klaar(); });
+    } else { fallbackKopie(tekst); klaar(); }
+  };
+}
+
+function fallbackKopie(t){
+  const ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta);
+  ta.select(); try{ document.execCommand("copy"); }catch(e){} document.body.removeChild(ta);
+}
+
+init();
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Methorst — Los &amp; Laad</title>
+<meta name="theme-color" content="#FDDD04">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Los &amp; Laad">
+<link rel="manifest" href='data:application/manifest+json,{"name":"Methorst Los %26 Laad","short_name":"Los %26 Laad","start_url":".","display":"standalone","background_color":"%23231F20","theme_color":"%23FDDD04","icons":[{"src":"data:image/svg+xml,%253Csvg xmlns=%2527http://www.w3.org/2000/svg%2527 viewBox=%25270 0 100 100%2527%253E%253Crect width=%2527100%2527 height=%2527100%2527 rx=%252722%2527 fill=%2527%252523FDDD04%2527/%253E%253Ctext x=%252750%2527 y=%252770%2527 font-size=%252758%2527 font-family=%2527sans-serif%2527 font-weight=%2527900%2527 text-anchor=%2527middle%2527 fill=%2527%252523231F20%2527%253EM%253C/text%253E%253C/svg%253E","sizes":"any","type":"image/svg+xml"}]}'>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%23FDDD04'/%3E%3Ctext x='50' y='70' font-size='58' font-family='sans-serif' font-weight='900' text-anchor='middle' fill='%23231F20'%3EM%3C/text%3E%3C/svg%3E">
+<style>
+  :root { --geel:#FDDD04; --zwart:#231F20; --paneel:#2C2A2B; --rand:#454244; --tekst:#F2F2F0; --stil:#A3A0A1; --groen:#54E38E; --oranje:#FFB020; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; background: var(--zwart); color: var(--tekst); font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  #app { max-width: 560px; margin: 0 auto; padding-bottom: 40px; min-height: 100vh; }
+  button { font: inherit; cursor: pointer; }
+  select, input { font: inherit; }
+  header { padding: 14px 16px 12px; background: var(--geel); border-bottom: 4px solid var(--zwart); }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 46px; height: 46px; border-radius: 10px; background: var(--zwart); color: var(--geel); display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 26px; }
+  .titel { font-weight: 900; font-size: 21px; letter-spacing: .14em; color: var(--zwart); }
+  .sub { font-size: 12px; color: var(--zwart); opacity: .75; margin-top: 2px; font-weight: 700; }
+  .geelstreep { height: 4px; background: repeating-linear-gradient(45deg, var(--geel) 0 14px, var(--zwart) 14px 28px); }
+  nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 12px 12px 0; }
+  nav button { padding: 12px 4px; border-radius: 10px; border: 1px solid var(--rand); background: var(--paneel); color: var(--stil); font-size: 13px; font-weight: 700; line-height: 1.15; }
+  nav button.actief { background: var(--geel); border-color: var(--geel); color: var(--zwart); }
+  .voertuigen { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 10px; }
+  .voertuigen button { padding: 11px 4px; border-radius: 10px; border: 1px solid var(--rand); background: var(--zwart); color: var(--stil); font-size: 13px; font-weight: 800; }
+  .voertuigen button.actief { background: var(--geel); border-color: var(--geel); color: var(--zwart); }
+  .paneel { margin: 12px 12px 4px; padding: 12px; border-radius: 14px; background: var(--paneel); border: 1px solid var(--rand); }
+  .rij { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .mt { margin-top: 10px; }
+  select { flex: 1; min-width: 160px; padding: 12px 10px; border-radius: 10px; background: var(--zwart); color: var(--tekst); border: 1px solid var(--rand); font-size: 15px; }
+  .gps { padding: 12px 14px; border-radius: 10px; border: 1px solid var(--geel); background: transparent; color: var(--geel); font-weight: 800; font-size: 15px; }
+  .waarschuwing { margin-top: 8px; font-size: 13px; color: var(--oranje); }
+  .veldlabel { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--stil); font-weight: 700; }
+  .stap { width: 40px; height: 40px; border-radius: 10px; border: 1px solid var(--rand); background: var(--zwart); color: var(--tekst); font-size: 20px; font-weight: 800; }
+  .tonw { min-width: 48px; text-align: center; font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
+  .toggle { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--rand); background: var(--zwart); color: var(--stil); font-size: 13px; font-weight: 700; }
+  .toggle.aan { border-color: var(--groen); color: var(--groen); }
+  .chip { padding: 8px 12px; border-radius: 99px; border: 1px solid var(--rand); background: var(--zwart); color: var(--stil); font-size: 13px; font-weight: 700; }
+  .chip.aan { border-color: var(--geel); color: var(--geel); }
+  main { padding: 8px 12px; }
+  .leeg { padding: 30px; text-align: center; color: var(--stil); }
+  .kaart { border-radius: 14px; background: var(--paneel); border: 1px solid var(--rand); margin-bottom: 8px; overflow: hidden; }
+  .kaart.top { border-color: var(--groen); box-shadow: 0 0 0 1px #54E38E33; }
+  .kop { display: flex; gap: 10px; width: 100%; padding: 12px 14px; background: transparent; border: none; color: inherit; text-align: left; align-items: center; }
+  .badges { display: flex; gap: 6px; margin-bottom: 3px; flex-wrap: wrap; }
+  .badge { font-size: 10px; font-weight: 900; letter-spacing: .08em; padding: 2px 7px; border-radius: 99px; }
+  .b-top { background: var(--groen); color: #231F20; }
+  .b-verv { background: var(--oranje); color: #231F20; }
+  .b-tre { border: 1px solid #4A4B50; color: var(--stil); padding: 1px 7px; }
+  .b-eigen { background: var(--geel); color: var(--zwart); }
+  .b-oud { border: 1px solid var(--oranje); color: var(--oranje); padding: 1px 7px; }
+  .naam { font-size: 17px; font-weight: 800; line-height: 1.2; }
+  .plaats { font-size: 13px; color: var(--stil); margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .prijsblok { text-align: right; flex-shrink: 0; }
+  .totaal { font-size: 20px; font-weight: 900; font-variant-numeric: tabular-nums; }
+  .totaal.groen { color: var(--groen); }
+  .perton { font-size: 12px; color: var(--stil); }
+  .onbekend { font-size: 12px; color: var(--stil); text-align: right; line-height: 1.3; }
+  .detail { padding: 0 14px 14px; border-top: 1px solid var(--rand); }
+  .bk { margin: 12px 0 10px; }
+  .bkr { display: flex; justify-content: space-between; font-size: 14px; color: #C9CBD0; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .bkt { border-top: 1px solid var(--rand); margin-top: 4px; padding-top: 7px; font-weight: 800; color: var(--tekst); }
+  .adres { font-size: 14px; margin-bottom: 4px; }
+  .note { font-size: 13px; color: var(--oranje); margin-bottom: 4px; }
+  .soortnote { font-size: 13px; color: var(--stil); margin-bottom: 4px; }
+  .acties { display: flex; gap: 8px; margin-top: 10px; }
+  .actie { flex: 1; text-align: center; padding: 13px 10px; border-radius: 10px; background: var(--geel); color: var(--zwart); font-weight: 900; font-size: 15px; text-decoration: none; border: none; }
+  .actie.lijn { background: transparent; border: 1px solid var(--geel); color: var(--geel); }
+  .asn { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--zwart); border: 1px dashed var(--geel); }
+  .asn h4 { margin: 0 0 4px; font-size: 14px; letter-spacing: .06em; color: var(--geel); }
+  .asn p.uitleg { margin: 0 0 10px; font-size: 12px; color: var(--stil); line-height: 1.4; }
+  .asn label { display: block; font-size: 12px; font-weight: 700; color: var(--stil); margin: 10px 0 4px; }
+  .asn input, .asn select { width: 100%; padding: 12px 10px; border-radius: 10px; background: var(--paneel); color: var(--tekst); border: 1px solid var(--rand); font-size: 15px; }
+  .asn input.fout, .asn select.fout { border-color: #FF5A5A; }
+  .foutmelding { font-size: 12px; color: #FF5A5A; margin-top: 8px; }
+  .gelukt { font-size: 13px; color: var(--groen); margin-top: 8px; font-weight: 700; }
+  .preview { margin-top: 6px; padding: 10px; border-radius: 10px; background: var(--paneel); border: 1px solid var(--rand); font-size: 12px; line-height: 1.5; color: #C9CBD0; white-space: pre-wrap; max-height: 220px; overflow-y: auto; }
+  .voetnoot { font-size: 12px; color: #6E7076; line-height: 1.5; padding: 10px 4px 0; }
+  .bedrijf { font-size: 11px; color: #6E7076; text-align: center; padding: 14px 20px 0; line-height: 1.6; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="brand">
+      <div class="logo">M</div>
+      <div>
+        <div class="titel">METHORST</div>
+        <div class="sub">Los &amp; Laad · Zuig- en Blaastechniek</div>
+      </div>
+    </div>
+  </header>
+  <div class="geelstreep"></div>
+  <nav id="tabs"></nav>
+  <section class="paneel">
+    <div class="voertuigen" id="voertuigen"></div>
+    <div class="rij">
+      <select id="startpunt" aria-label="Startpunt"></select>
+      <button class="gps" id="gpsknop">◎ GPS</button>
+    </div>
+    <div class="waarschuwing" id="gpsfout" style="display:none">GPS niet beschikbaar. Kies hierboven de dichtstbijzijnde plaats.</div>
+    <div class="rij mt">
+      <label class="veldlabel">Lading
+        <span style="display:flex;align-items:center;gap:6px">
+          <button class="stap" id="tonmin">−</button>
+          <span class="tonw" id="tonw">15 t</span>
+          <button class="stap" id="tonplus">+</button>
+        </span>
+      </label>
+      <button class="toggle" id="retour">Retour meerekenen</button>
+    </div>
+    <div class="rij mt" id="sorteerchips"></div>
+    <div class="rij" style="margin-top:8px" id="vervuildchips"></div>
+  </section>
+  <main id="lijst"><div class="leeg">Locatie bepalen…</div></main>
+  <footer class="bedrijf">
+    Methorst Projecten B.V. · Stationsweg Oost 281D, 3931 ER Woudenberg · 0318-711002<br>
+    KvK 68883501 · BTW NL857632255B01 · VIHB 528605VXXX
+  </footer>
+</div>
+
+<script>
+// =========================================================================
+// BEDRIJFSGEGEVENS METHORST (ontdoener + transporteur)
+// =========================================================================
+const METHORST = {
+  naam: "Methorst Projecten B.V.",
+  adres: "Stationsweg Oost 281D",
+  pc: "3931 ER Woudenberg",
+  tel: "0318-711002",
+  web: "www.methorst-zuigtechniek.nl",
+  mail: "info@methorst-projecten.nl",
+  mailFacturen: "crediteuren@methorst-projecten.nl",
+  btw: "NL857632255B01",
+  kvk: "68883501",
+  vihb: "528605VXXX",
+};
+
+// =========================================================================
+// DATA — basis: Grind_Laden.xlsx, geactualiseerd met Basecone-facturen en
+// webresearch (Methorst_Losslaadlocaties.xlsx, sessie 04-07-2026).
+// Coördinaten geschat op adres. Veld mail:"info@verwerker.nl" wordt getoond bij
+// de locatie en automatisch als ontvanger ingevuld bij een ASN-aanvraag (cc gaat
+// altijd naar planning). Veld m3:true = prijs per m³ i.p.v. per ton.
+// =========================================================================
+const LOCATIES = [
+  // ---- LOSSEN GRIND / PUIN ----
+  {cat:"lossen-grind",naam:"Methorst (eigen terrein)",plaats:"Woudenberg",adres:"Stationsweg Oost 281D, 3931 ER Woudenberg",prijs:4.5,aanvoer:2.81,aanvoerlabel:"Afvoer naar Vink",eigen:true,noAsn:true,note:"Op de zaak lossen — vollere vrachten mogelijk. Storttarief Vink €4,50/t + afvoer Woudenberg→Vink €90/vracht ÷ 32 t = €2,81/t. Alleen zand/grond/grind",lat:52.083,lng:5.417},
+  {cat:"lossen-grind",naam:"Grondstoffenbank Agriport",plaats:"Middenmeer",adres:"Agriport 149, 1775 TA Middenmeer",prijs:4.5,tel:"0227745451",mail:"info@grondstoffenbankagriport.nl",bron:"06-2023",note:"Puin fijn <50 cm. Prijs 2023 — verifiëren",lat:52.756,lng:4.985},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Hengelo",adres:"Hengelo",prijs:4,note:"Niet in Basecone gevonden — prijs 2025, verifiëren",lat:52.272,lng:6.775},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Veendam",adres:"Veendam",prijs:4,lat:53.102,lng:6.874},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Almelo Centrum",adres:"Almelo",prijs:4,lat:52.357,lng:6.662},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Almelo Recycling",adres:"Almelo",prijs:4,lat:52.34,lng:6.68},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Groningen",adres:"Groningen",prijs:4,lat:53.216,lng:6.60},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Emmen",adres:"Emmen",prijs:4,lat:52.785,lng:6.897},
+  {cat:"lossen-grind",naam:"Twee R Recycling",plaats:"Doetinchem",adres:"Havenstraat 70, Doetinchem",prijs:4,lat:51.966,lng:6.293},
+  {cat:"lossen-grind",naam:"Wissels Groep",plaats:"Zutphen",adres:"Verlengde Ooyerhoekseweg 9, 7207 BJ Zutphen",prijs:6,tel:"0575526748",mail:"info@wissels.eu",bron:"05-2026",note:"Puin. Facturatie via W.A.Z. B.V. Containers & Transport",lat:52.13,lng:6.225},
+  {cat:"lossen-grind",naam:"Vink",plaats:"Barneveld",adres:"Valkseweg 62, 3771 RG Barneveld",prijs:4.5,tel:"0342406406",mail:"grondstoffen@vink.nl",bron:"07-2026",note:"Vink Barneveld (Grondstoffen/Afvalverwerking)",lat:52.145,lng:5.575},
+  {cat:"lossen-grind",naam:"LelyCycle",plaats:"Lelystad",adres:"Mortelstraat 9, 8211 AD Lelystad",prijs:5,tel:"0320748992",mail:"info@lelycycle.nl",bron:"06-2026",note:"Betonpuin/zuigzand + brandstoftoeslag €0,34/t",lat:52.508,lng:5.437},
+  {cat:"lossen-grind",naam:"Pro-Oss (Puin Recycling Oss)",plaats:"Oss",adres:"Maaskade 21, 5347 KD Oss",prijs:5,tel:"0412650034",mail:"info@pro-oss.nl",bron:"03-2026",note:"Mengpuin (was €4,75). ASN bekend: 1061325i0041 · facturen: factuur@pro-oss.nl",lat:51.78,lng:5.53},
+  {cat:"lossen-grind",naam:"Grondbank De Peel",plaats:"De Rips (Helmond)",adres:"Burg. vd Wildenberglaan 46a, 5764 RH De Rips",prijs:5,tel:"0493748145",mail:"rene@grdepeel.nl",lat:51.53,lng:5.83},
+  {cat:"lossen-grind",naam:"Theunissen Infra",plaats:"Haelen",adres:"De Giesel 26, 6081 PH Haelen",prijs:5,tel:"0623688680",mail:"info@theunisseninfra.nl",bron:"06-2026",note:"Schoon puin",lat:51.23,lng:5.95},
+  {cat:"lossen-grind",naam:"Van de Kraats en Bouw",plaats:"Ede",adres:"Neonstraat 36, 6718 WV Ede",prijs:7.5,tel:"0318637965",mail:"administratie@kraatsenbouw.nl",bron:"09-2025",note:"Storten puin/granulaat. Steenbrekerij/sloopbedrijf",lat:52.033,lng:5.645},
+  {cat:"lossen-grind",naam:"BPS Recycling",plaats:"Maastricht",adres:"Ankerkade 14, 6222 NM Maastricht",prijs:5.5,tel:"0436011295",mail:"info.bps@janssen-group.com",bron:"05-2026",note:"Schoon mengpuin max. 5% zand/grond. Onderdeel Janssen Group",lat:50.87,lng:5.72},
+  {cat:"lossen-grind",naam:"Driessen Grondwerken",plaats:"Sevenum",adres:"Zeesweg 30, Sevenum",prijs:6,tel:"0773978000",mail:"facturen@driessengrondwerken.nl",bron:"03-2026",note:"Schoon puin fijn <50x50 cm. HK Horst",lat:51.40,lng:6.02},
+  {cat:"lossen-grind",naam:"Gebr. v/d Heiden Transport",plaats:"Almere",adres:"Hefbrugweg 103, 1332 AM Almere",prijs:5.5,tel:"0365328997",bron:"2026",note:"Acceptatie betonpuin bevestigd. HQ Eemnes: 035-5382182",lat:52.414,lng:5.288},
+  {cat:"lossen-grind",naam:"'ssel'",plaats:"Den Bosch",adres:"Den Bosch",prijs:6.5,note:"Naam onvolledig in lijst",lat:51.699,lng:5.304},
+  {cat:"lossen-grind",naam:"Heuvelman",plaats:"Krimpen a/d IJssel",adres:"Lekdijk 45, 2921 AC Krimpen aan den IJssel",prijs:7.5,tel:"0180512165",mail:"info@heuvelman-zand.nl",bron:"06-2026",note:"Puin schoon (was €8) + brandstoftoeslag €9,85 vast",lat:51.894,lng:4.615},
+  {cat:"lossen-grind",naam:"Putman",plaats:"Westervoort",adres:"IJsseldijk 3-7, Westervoort",prijs:7.5,tel:"0642687717",note:"Geen facturen in Basecone — prijs 2025",lat:51.958,lng:5.973},
+  {cat:"lossen-grind",naam:"Theo Pouw",plaats:"Utrecht",adres:"Isotopenweg 29, Utrecht",prijs:8.25,tel:"0302425262",mail:"facturatie@theopouw.nl",bron:"06-2026",note:"Dakgrind afvoeren, bevestigd €8,25/t. RKG-zand: zie tab Slib/RKG",lat:52.113,lng:5.078},
+  {cat:"lossen-grind",naam:"F.A. Kamphorst",plaats:"Ermelo",adres:"Rodeschuurderwegje 26-28, 3853 LS Ermelo",prijs:10,tel:"0341552025",mail:"info@firmakamphorst.nl",lat:52.29,lng:5.63},
+  {cat:"lossen-grind",naam:"Joop Rodenburg",plaats:"Druten",adres:"Kerkstraat 60, Druten",prijs:11.5,lat:51.887,lng:5.60},
+  {cat:"lossen-grind",naam:"Van Mourik",plaats:"De Glind",adres:"Postweg, De Glind",prijs:11.8,noAsn:true,note:"€20/m³ ≈ €11,80/ton. Geen ASN nodig",lat:52.20,lng:5.48},
+  {cat:"lossen-grind",naam:"K&G Postma",plaats:"Leeuwarden",adres:"James Wattstraat 25, 8912 AS Leeuwarden",prijs:12,tel:"0582134973",mail:"info@kgpostmabv.nl",bron:"05-2026",note:"Schoon dakgrind afvoeren",lat:53.192,lng:5.83},
+  {cat:"lossen-grind",naam:"Verhoeven",plaats:"Breda",adres:"Eikdonk 7 & 13a, 4825 AZ Breda",prijs:12,tel:"0765872900",mail:"verhoeven@verhoevenbv.info",bron:"06-2026",note:"Puin <50x50x50, verwerking locatie Breda 2 (prijs was onbekend)",lat:51.585,lng:4.80},
+  {cat:"lossen-grind",naam:"Van Pinxteren",plaats:"Boxtel",adres:"Tongeren 48, 5282 JH Boxtel",prijs:12.5,tel:"0411675720",mail:"info@pinxterenbv.nl",bron:"02-2026",lat:51.58,lng:5.31},
+  {cat:"lossen-grind",naam:"Otte Lisse (Grondbank Lisse)",plaats:"Lisse",adres:"Heereweg 1b, 2161 AB Lisse",prijs:15,tel:"0252419161",mail:"info@ottelisse.nl",bron:"06-2026",note:"Puin per ton (was €13,50)",lat:52.272,lng:4.55},
+  {cat:"lossen-grind",naam:"Braam Recycling (IJmond)",plaats:"Kudelstaart",adres:"Ambachtsheerweg, Kudelstaart",prijs:17.5,tel:"0884005300",bron:"02-2026",note:"ASN bekend: 0792540MP007. Locatie Kudelstaart bevestigd (2e locatie: Alkmaar drogerij); lijst 2025 zei Beverwijk",lat:52.235,lng:4.755},
+  {cat:"lossen-grind",naam:"Van Woerden Recycling",plaats:"Zoetermeer",adres:"Nieuwe Hoefweg 4, 2722 PA Zoetermeer",prijs:19,tel:"0793316686",mail:"info@van-woerden.nl",bron:"06-2026",note:"Schoon dakgrind afvoeren (was €17,50)",lat:52.03,lng:4.53},
+  {cat:"lossen-grind",naam:"Pijnenburg",plaats:"Esch",adres:"Esch",prijs:20,lat:51.602,lng:5.29},
+  {cat:"lossen-grind",naam:"Verhoeven",plaats:"Tilburg",adres:"Centaurusweg 25 & 35, 5015 TA Tilburg",prijs:null,tel:"0135422269",mail:"verhoeven@verhoevenbv.info",note:"Puin €12/t bevestigd op locatie Breda — tarief Tilburg verifiëren",lat:51.578,lng:5.115},
+  {cat:"lossen-grind",naam:"De Hoop (via BBZ Recycling)",plaats:"Bergen op Zoom",adres:"Van Konijnenburgweg 80, 4612 PL Bergen op Zoom",prijs:1.5,note:"€1,50 laatste keer betaald — verifiëren. Facturatie loopt via dochter BBZ Recycling BV",lat:51.492,lng:4.28},
+  {cat:"lossen-grind",naam:"Sinke Groep",plaats:"Goes e.o.",adres:"Middelburg / Goes / Kruiningen",prijs:45,lat:51.498,lng:3.888},
+  {cat:"lossen-grind",naam:"Reko",plaats:"Rotterdam",adres:"Vondelingenplaat 17 (Haven 3260)",prijs:50,lat:51.885,lng:4.35},
+  {cat:"lossen-grind",naam:"Agriport A7",plaats:"Middenmeer",adres:"Agriport 149, Middenmeer",prijs:30,tel:"0611363529",vervuild:true,lat:52.756,lng:4.985},
+  {cat:"lossen-grind",naam:"Tiel Zuiderhavenweg",plaats:"Tiel",adres:"Zuiderhavenweg 16, Tiel",prijs:30,vervuild:true,lat:51.886,lng:5.437},
+  {cat:"lossen-grind",naam:"Swartjes Transport",plaats:"Nijmegen",adres:"Nijverheidsweg 42, 6541 CM Nijmegen",prijs:41.3,tel:"0243785377",mail:"info@swartjestransport.nl",bron:"06-2026",vervuild:true,note:"Dakgrind als afvalstof aangeleverd",lat:51.845,lng:5.86},
+  {cat:"lossen-grind",naam:"Putman",plaats:"Westervoort",adres:"IJsseldijk 3-7, Westervoort",prijs:70,tel:"0642687717",vervuild:true,lat:51.958,lng:5.973},
+
+  // ---- LOSSEN GROND ----
+  {cat:"lossen-grond",naam:"Methorst (eigen terrein)",plaats:"Woudenberg",adres:"Stationsweg Oost 281D, 3931 ER Woudenberg",prijs:22.5,aanvoer:2.81,aanvoerlabel:"Afvoer naar Recom",eigen:true,noAsn:true,note:"Op de zaak lossen — vollere vrachten mogelijk. Storttarief Recom €22,50/t + afvoer Woudenberg→Recom €90/vracht ÷ 32 t = €2,81/t. Alleen zand/grond/grind",lat:52.083,lng:5.417},
+  {cat:"lossen-grond",naam:"Ten Brinke Recycling",plaats:"Rijssen",adres:"Noordermorssingel 19, 7461 JP Rijssen",prijs:17,tel:"0548538686",mail:"info@tenbrinke.nl",bron:"03-2026",note:"Gemengde grond (prijs was onbekend). Open ma-vr 7:30-17:00. Sorteerhal, puin- en gronddepot",lat:52.315,lng:6.50},
+  {cat:"lossen-grond",naam:"Grondbank De Peel",plaats:"De Rips (Helmond)",adres:"Burg. vd Wildenberglaan 46a, 5764 RH De Rips",prijs:20.5,tel:"0493748145",mail:"rene@grdepeel.nl",bron:"04-2026",note:"Grond klasse onbekend <100 t, onverdacht (BRL9335-1). Was €21",lat:51.53,lng:5.83},
+  {cat:"lossen-grond",naam:"K3 Delta",plaats:"De Steeg",adres:"Havikerwaard 8-32, De Steeg",prijs:null,tel:"0243488884",note:"Geen factuur in Basecone — prijs onbekend",lat:52.02,lng:6.06},
+  {cat:"lossen-grond",naam:"Recom",plaats:"Ede",adres:"Neonstraat 20, 6718 WV Ede",prijs:22.5,tel:"0318696666",mail:"info@recomede.nl",bron:"06-2026",note:"Grond zonder voorkennis + brandstoftoeslag 4% (was €25)",lat:52.033,lng:5.645},
+  {cat:"lossen-grond",naam:"Hoogeboom",plaats:"Raalte",adres:"Stobbenbroekerweg 16, Raalte",prijs:23,lat:52.385,lng:6.285},
+  {cat:"lossen-grond",naam:"Hoogeboom",plaats:"Zwolle",adres:"Rijnlandstraat 5, Zwolle",prijs:23,note:"Elders in lijst €30 — verifiëren",lat:52.52,lng:6.13},
+  {cat:"lossen-grond",naam:"Heuvelman",plaats:"Krimpen a/d IJssel",adres:"Lekdijk 45, 2921 AC Krimpen aan den IJssel",prijs:24.5,tel:"0180512165",mail:"info@heuvelman-zand.nl",bron:"05-2026",note:"Grond/zandafvoer ongekeurd (BRL 9335-1) + brandstoftoeslag (was €23)",lat:51.894,lng:4.615},
+  {cat:"lossen-grond",naam:"Gebr. v/d Heiden Transport",plaats:"Eemnes",adres:"Eemweg 31a, 3755 LC Eemnes",prijs:23,tel:"0355382182",note:"Zelfde bedrijf als locatie Almere (betonpuin €5,50)",lat:52.255,lng:5.255},
+  {cat:"lossen-grond",naam:"F.A. Kamphorst",plaats:"Ermelo",adres:"Rodeschuurderwegje 26-28, 3853 LS Ermelo",prijs:25,tel:"0341552025",mail:"info@firmakamphorst.nl",bron:"04-2026",note:"Menggrond ongekeurd (was €22,50)",lat:52.29,lng:5.63},
+  {cat:"lossen-grond",naam:"Rouwmaat Recycling",plaats:"Groenlo",adres:"Den Sliem 93, 7140 AB Groenlo",prijs:26.5,tel:"0544474040",mail:"groenlo@rouwmaat.nl",bron:"08-2024",note:"NIEUW. Grond gemengd/onbekend + €7,50/vracht weeg-/laadkosten",lat:52.045,lng:6.615},
+  {cat:"lossen-grond",naam:"Theo Pouw",plaats:"Utrecht",adres:"Isotopenweg 29, Utrecht",prijs:32.5,tel:"0302425262",mail:"facturatie@theopouw.nl",bron:"06-2026",note:"Ongekeurde grond (was €27,50) + registratiekosten €75/keer",lat:52.113,lng:5.078},
+  {cat:"lossen-grond",naam:"Otte Lisse (Grondbank Lisse)",plaats:"Lisse",adres:"Heereweg 1b, 2161 AB Lisse",prijs:27.5,tel:"0252419161",mail:"info@ottelisse.nl",lat:52.272,lng:4.55},
+  {cat:"lossen-grond",naam:"LelyCycle",plaats:"Lelystad",adres:"Mortelstraat 9, 8211 AD Lelystad",prijs:30,tel:"0320748992",mail:"info@lelycycle.nl",lat:52.508,lng:5.437},
+  {cat:"lossen-grond",naam:"Wagro (Grondbank Midden-Nederland)",plaats:"Waddinxveen",adres:"Tweede Bloksweg 54B-56, 2742 KK Waddinxveen",prijs:30,tel:"0182632236",mail:"info@wagro.nl",bron:"05-2026",note:"Grond ongeanalyseerd + tijdelijke dieseltoeslag. In Basecone geregistreerd als Grondbank Midden-Nederland",lat:52.03,lng:4.64},
+  {cat:"lossen-grond",naam:"Wissels",plaats:"Zutphen",adres:"Verlengde Ooyerhoekseweg, Zutphen",prijs:30,lat:52.13,lng:6.225},
+  {cat:"lossen-grond",naam:"Swartjes Transport",plaats:"Nijmegen",adres:"Nijverheidsweg 42, 6541 CM Nijmegen",prijs:30.25,tel:"0243785377",mail:"info@swartjestransport.nl",bron:"06-2026",note:"Grond min. kwaliteit industrie (was €37)",lat:51.855,lng:5.84},
+  {cat:"lossen-grond",naam:"vd Maas",plaats:"Bruinisse",adres:"Langeweg 2B, Bruinisse",prijs:32.5,tel:"0111641417",lat:51.66,lng:4.095},
+  {cat:"lossen-grond",naam:"Verboon (depot L)",plaats:"Schiedam",adres:"Depot L, Schiedam — exact adres verifiëren",prijs:39.5,m3:true,tel:"0681688699",mail:"planning@verboontransport.nl",bron:"10-2025",note:"Grond onbemonsterd, per m³ (lijst 2025: Den Haag €25/t). Administratie: 070-8209610",lat:51.92,lng:4.39},
+  {cat:"lossen-grond",naam:"Van Assen BV",plaats:"Kootstertille",adres:"Kootstertille (Friesland)",prijs:45,note:"Lijst zegt 'Assen / Kloostertille' — niet in Basecone gevonden, verifiëren",lat:53.24,lng:6.08},
+  {cat:"lossen-grond",naam:"Van Schie",plaats:"Mijdrecht",adres:"Constructieweg 100, 3641 SP Mijdrecht",prijs:null,tel:"0297237537",mail:"info@vanschie.com",note:"Asbestverdachte grond €65/t (04-2026) + energietoeslag €0,40/t, NEN+PFAS-analyse €450, begeleidingsbrief €1,50. Reguliere grondprijs onbekend",lat:52.20,lng:4.86},
+
+  // ---- LOSSEN SLIB / RKG ----
+  {cat:"lossen-slib",naam:"Theo Pouw",plaats:"Utrecht",adres:"Isotopenweg 29, Utrecht",prijs:62.75,tel:"0302425262",mail:"facturatie@theopouw.nl",bron:"04-2026",note:"RKG-zand (riool-, kolken- en gemalenzand)",lat:52.113,lng:5.078},
+  {cat:"lossen-slib",naam:"Afvalzorg GSL",plaats:"Sittard",adres:"Millenerweg 12, Sittard",prijs:70,bron:"07-2023",note:"RKG-slib en veegvuil, contract Millenerweg 12. Verwerker Brunssum GSL — contactgegevens nog opzoeken",lat:51.005,lng:5.885},
+  {cat:"lossen-slib",naam:"RETERRA",plaats:"Goor",adres:"Mossendamsdwarsweg 1, 7472 DB Goor",prijs:null,tel:"0547286600",mail:"info@reterra.nl",note:"Veegzand + RKG-slib (webresearch, prijs navragen). Ook sloophout/groenafval",lat:52.235,lng:6.585},
+  {cat:"lossen-slib",naam:"Zandrecycling Nederland (ZRN)",plaats:"Amersfoort e.a.",adres:"Landelijk netwerk (11 locaties) — o.a. Amersfoort, Zutphen, Groenlo, Amsterdam",prijs:null,tel:"0174243950",mail:"info@zandrecycling.nl",note:"RKG-slib, veegvuil, veegzand (webresearch, prijs navragen). BRL SIKB 7500. HK Honselersdijk",lat:52.155,lng:5.39},
+  {cat:"lossen-slib",naam:"Groen & Grond Combinatie",plaats:"Middenmeer / Vijfhuizen",adres:"Koggenrandweg 1, 1775 RG Middenmeer",prijs:null,tel:"0888010801",mail:"info@groenengrond.nl",note:"RKG-slib + veegvuil (webresearch, prijs navragen). Gelieerd aan Afvalzorg. Ook Vijfhuizen: Ecoweg 20",lat:52.756,lng:4.985},
+
+  // ---- LOSSEN ISOLATIEPARELS ----
+  {cat:"lossen-bouwafval",naam:"Remondis",plaats:"Scherpenzeel",adres:"Hopeseweg 3, 3925 KT Scherpenzeel",prijs:675,tel:"0332771880",mail:"scherpenzeel@remondis.nl",bron:"06-2026",note:"Isolatieparels. ASN 050394930002, transponder 170904. Facturen: facturen@remondis.nl",lat:52.078,lng:5.485},
+
+  // ---- LADEN GRIND ----
+  {cat:"laden-grind",naam:"Methorst (eigen terrein)",plaats:"Woudenberg",adres:"Stationsweg Oost 281D, 3931 ER Woudenberg",prijs:37.5,eigen:true,noAsn:true,note:"Grind laden op de zaak — vollere vrachten mogelijk. €37,50/t incl. materiaal + transport Van Wees (Malden) naar Woudenberg",lat:52.083,lng:5.417,soort:"16/32"},
+  {cat:"laden-grind",naam:"Vissers Ploegmakers",plaats:"Oss",adres:"Nieuwe Waterweg 1, Oss",prijs:24,tel:"0413212168",trechter:true,note:"Niet in Basecone gevonden — prijs 2025",lat:51.79,lng:5.52,soort:"16/32"},
+  {cat:"laden-grind",naam:"Constar Zand & Grind",plaats:"Tiel",adres:"Zuiderhavenweg 56, 4004 JJ Tiel",prijs:26.78,tel:"0344611222",mail:"verkoop@constar.nl",bron:"06-2026",note:"Grind Bovenrijn 16-32, afgehaald",lat:51.886,lng:5.437,soort:"16/32"},
+  {cat:"laden-grind",naam:"K3 Delta",plaats:"De Steeg",adres:"Havikerwaard 8-32, De Steeg",prijs:null,tel:"0243488884",note:"Geen factuur in Basecone — prijs onbekend",lat:52.02,lng:6.06,soort:"16/32"},
+  {cat:"laden-grind",naam:"K3 Delta",plaats:"Echteld",adres:"Parklaan 1, Echteld",prijs:null,tel:"0243488884",note:"Geen factuur in Basecone — prijs onbekend",lat:51.91,lng:5.44,soort:"16/32"},
+  {cat:"laden-grind",naam:"K3 Delta",plaats:"Bemmel/Haalderen",adres:"Buitenpolder 26, Haalderen",prijs:null,tel:"0243488884",note:"Geen factuur in Basecone — prijs onbekend",lat:51.87,lng:5.93,soort:"16/32"},
+  {cat:"laden-grind",naam:"K3 Delta",plaats:"Lathum",adres:"Lathum",prijs:null,tel:"0243488884",note:"Geen factuur in Basecone — prijs onbekend",lat:51.99,lng:6.03,soort:"16/32"},
+  {cat:"laden-grind",naam:"K3 Delta",plaats:"Arnhem",adres:"Nieuwe Kade 41, Arnhem",prijs:null,tel:"0243488884",note:"Geen factuur in Basecone — prijs onbekend",lat:51.975,lng:5.92,soort:"16/32"},
+  {cat:"laden-grind",naam:"Wessem Port Services",plaats:"Wessem",adres:"Groeneweg 1, 6019 RE Wessem",prijs:30.5,tel:"0475563100",mail:"info@wessem.com",bron:"04-2026",note:"Bonte grind 16-32 (was €25)",lat:51.16,lng:5.88,soort:"16/32"},
+  {cat:"laden-grind",naam:"Raaymakers",plaats:"Oirschot",adres:"Kanaaldijk Noord 5, 5688 HR Oirschot",prijs:32.14,tel:"0499571271",bron:"05-2025",note:"Betongrind afgehaald (was €30). Open ma-vr 7-17, za 7-12",lat:51.51,lng:5.30,soort:"16/32"},
+  {cat:"laden-grind",naam:"Theo Pouw",plaats:"Utrecht",adres:"Isotopenweg 29, Utrecht",prijs:32.75,tel:"0302425262",mail:"facturatie@theopouw.nl",bron:"05-2026",trechter:true,note:"Grind 16/32 (was €33,15) + laagwatertoeslag €8/t + producttoeslag €0,50/t",lat:52.113,lng:5.078,soort:"16/32"},
+  {cat:"laden-grind",naam:"Bos BV",plaats:"Deventer",adres:"Tielstraat 6, Deventer",prijs:34.65,tel:"0570638360",note:"Niet in Basecone gevonden — prijs verifiëren",lat:52.245,lng:6.16,soort:"16/32"},
+  {cat:"laden-grind",naam:"De Beijer Bouwgrondstoffen",plaats:"Dodewaard",adres:"Waalbandijk 69, 6669 MC Dodewaard",prijs:35,tel:"0884006360",mail:"verkoop@debeijerbv.com",bron:"06-2026",note:"Moraine grind 16/32 (was €31,50) + laagwatertoeslag €9/t + energie 3,75% — prijs varieert met waterstand",lat:51.905,lng:5.66,soort:"16/32 (30/60: €39,50 in 2025)"},
+  {cat:"laden-grind",naam:"Grizan",plaats:"Hengelo",adres:"Zuidelijke Havenweg 20, Hengelo",prijs:35.5,tel:"0850768800",lat:52.245,lng:6.77,soort:"16/32"},
+  {cat:"laden-grind",naam:"Betoncentrale Maastricht",plaats:"Maastricht",adres:"Ankerkade 126, Maastricht",prijs:36,tel:"0432204444",lat:50.87,lng:5.72,soort:"16/32"},
+  {cat:"laden-grind",naam:"Spaansen",plaats:"Winkel",adres:"Winkel (NH)",prijs:38.6,note:"Prijs 07-2025 via winkel-entiteit (retail). Bulk-tak 'Spaansen Grondstoffen en Logistiek': geen facturen",lat:52.755,lng:4.90,soort:"16/32"},
+  {cat:"laden-grind",naam:"De Hoop (Houtkaai)",plaats:"Goes",adres:"Houtkade 6, Goes",prijs:40.6,tel:"0655322331",lat:51.505,lng:3.89,soort:"16/32"},
+  {cat:"laden-grind",naam:"Van Ouwerkerk",plaats:"Middelburg",adres:"Uijterschootweg 14, 4338 PN Middelburg",prijs:46,tel:"0118612728",mail:"info@vanouwerkerkbv.nl",bron:"09-2025",note:"Dakgrind 16/32 afgehaald",lat:51.51,lng:3.62,soort:"16/32"},
+  {cat:"laden-grind",naam:"Dekker",plaats:"Rotterdam",adres:"Stadionweg 27, Rotterdam",prijs:null,tel:"0104826633",trechter:true,note:"Vloerenzand: zie tab Laden zand (€20,75)",lat:51.885,lng:4.53,soort:"16/32 en 30/60"},
+  {cat:"laden-grind",naam:"Dekker",plaats:"Zwolle",adres:"Bomhofsweg 5, Zwolle",prijs:null,tel:"0344579915",note:"= Zandwinning Zwolle (via Dekker Grondstoffen)",lat:52.545,lng:6.10,soort:"16/32"},
+  {cat:"laden-grind",naam:"Van Gent",plaats:"Kerkdriel",adres:"Steigerboom 9, 5331 KA Kerkdriel",prijs:null,note:"Vloerenzand: zie tab Laden zand (€18,85)",lat:51.775,lng:5.345,soort:"16/32"},
+  {cat:"laden-grind",naam:"Cementhandel Amsterdam",plaats:"Amsterdam",adres:"Adres onbekend",prijs:null,trechter:true,note:"Locatie geschat",lat:52.37,lng:4.90},
+
+  // ---- LADEN ZAND ----
+  {cat:"laden-zand",naam:"Methorst (eigen terrein)",plaats:"Woudenberg",adres:"Stationsweg Oost 281D, 3931 ER Woudenberg",prijs:20.75,aanvoer:4.22,aanvoerlabel:"Aanvoer Elst",eigen:true,noAsn:true,note:"Zand laden voor het blazen. Materiaal ingekocht bij Dekker (Elst) à €20,75/t + aanvoer Elst→Woudenberg €135/vracht ÷ 32 t = €4,22/t",lat:52.083,lng:5.417},
+  {cat:"laden-zand",naam:"A. van Gent en Zn.",plaats:"Kerkdriel",adres:"Steigerboom 9, 5331 KA Kerkdriel",prijs:18.85,bron:"06-2026",note:"Vloerenzand VGK + dieseltoeslag €0,45/t (prijs was onbekend). Ook: ophoogzand, beton-/parelgrind, tuingrond, puin-mijnsteen",lat:51.775,lng:5.345},
+  {cat:"laden-zand",naam:"De Rivierendriesprong",plaats:"Papendrecht",adres:"Noordhoek 35, 3351 LD Papendrecht",prijs:16,tel:"0786413335",bron:"04-2026",note:"Betonzand 0-4 afgehaald + brandstoftoeslag €0,50/t",lat:51.83,lng:4.70},
+  {cat:"laden-zand",naam:"Albeton",plaats:"Krimpen a/d IJssel",adres:"Krimpen aan den IJssel (ophaaladres verifiëren)",prijs:23.4,tel:"0180515044",mail:"kantoor@albeton.nl",bron:"06-2026",note:"Vloerenzand afgehaald + laagwatertoeslag €1,59 + gasolietoeslag €1,35",lat:51.92,lng:4.60},
+  {cat:"laden-zand",naam:"Zandwinning Oosterweilanden",plaats:"Vriezenveen",adres:"Horstweg 15, Vriezenveen",prijs:20,tel:"0650971538",note:"Niet in Basecone gevonden — prijs 2025",lat:52.39,lng:6.60},
+  {cat:"laden-zand",naam:"Zandink",plaats:"Harderwijk",adres:"Harderwijk",prijs:20,note:"Verouderd: laatste factuur 12-2021 (vulzand €9,50/m³) — verifiëren",lat:52.35,lng:5.62},
+  {cat:"laden-zand",naam:"Zandwinning Zwolle",plaats:"Zwolle",adres:"Bomhofsweg, Zwolle",prijs:20.4,note:"Loopt via Dekker Grondstoffen. Niet verwarren met Terrazande Zandexploitatie Zwolle",lat:52.50,lng:6.09},
+  {cat:"laden-zand",naam:"Dekker Grondstoffen",plaats:"Rotterdam",adres:"Stadionweg 27, Rotterdam",prijs:20.75,tel:"0104826633",bron:"06-2026",note:"Vloerenzand (prijs was onbekend) + gasolietoeslag €0,88/t. Zeer frequente leverancier",lat:51.885,lng:4.53},
+  {cat:"laden-zand",naam:"Koers",plaats:"Westerbroek",adres:"Winschoterweg 21, Westerbroek",prijs:29,note:"Niet in Basecone gevonden — prijs 2025",lat:53.19,lng:6.66},
+  {cat:"laden-zand",naam:"ZEM Eesermeer",plaats:"Eesermeer",adres:"Kantoor: Eeser Campus 30, 8332 VJ Steenwijk",prijs:null,tel:"0612221167",note:"Prijs nog niet in Basecone bevestigd",lat:52.93,lng:6.80},
+
+  // ---- LADEN OVERIG (schelpen / EPS-parels) ----
+  {cat:"laden-zand",naam:"Methorst — schelpen (eigen terrein)",plaats:"Woudenberg",adres:"Stationsweg Oost 281D, 3931 ER Woudenberg",prijs:50,m3:true,eigen:true,noAsn:true,bron:"06-2026",note:"Schone schelpen (Visser, Zoutkamp) liggen in Woudenberg. €50/m³ is de gebrachte prijs incl. aanvoer. BRL SIKB 1000/1001",lat:52.083,lng:5.417},
+  {cat:"laden-zand",naam:"EPS Parelshop",plaats:"Culemborg",adres:"Pascalweg 10, 4104 AM Culemborg",prijs:47,m3:true,tel:"0683230961",bron:"04-2026",note:"Bulk bodemparels los per m³, zelf afhalen. Vaste leverancier sinds 2023",lat:51.955,lng:5.245},
+];
+
+const STARTPUNTEN = [
+  {naam:"GPS — huidige locatie",gps:true},
+  {naam:"Woudenberg (loods)",lat:52.083,lng:5.417},
+  {naam:"Amsterdam",lat:52.37,lng:4.90},{naam:"Rotterdam",lat:51.92,lng:4.48},
+  {naam:"Den Haag",lat:52.08,lng:4.31},{naam:"Utrecht",lat:52.09,lng:5.12},
+  {naam:"Eindhoven",lat:51.44,lng:5.48},{naam:"Arnhem",lat:51.985,lng:5.90},
+  {naam:"Nijmegen",lat:51.845,lng:5.86},{naam:"Zwolle",lat:52.51,lng:6.09},
+  {naam:"Groningen",lat:53.22,lng:6.57},{naam:"Maastricht",lat:50.85,lng:5.69},
+  {naam:"Breda",lat:51.59,lng:4.78},{naam:"Amersfoort",lat:52.155,lng:5.39},
+  {naam:"Apeldoorn",lat:52.21,lng:5.97},{naam:"Almere",lat:52.37,lng:5.22},
+  {naam:"Leeuwarden",lat:53.20,lng:5.80},{naam:"Tilburg",lat:51.56,lng:5.09},
+  {naam:"Goes",lat:51.50,lng:3.89},
+];
+
+// Interne uurtarieven per voertuig — worden meegenomen in de berekening,
+// maar bewust NIET getoond in de app.
+const VOERTUIGEN = [
+  {id:"zuigwagen",label:"Zuigwagen",tarief:230},
+  {id:"containerauto",label:"Containerauto",tarief:120},
+  {id:"blaaswagen",label:"Blaaswagen",tarief:240},
+];
+const ASN_CC = "planning@methorst-projecten.nl";
+const TABS = [
+  {id:"lossen-grind",label:"Lossen grind"},
+  {id:"lossen-grond",label:"Lossen grond"},
+  {id:"lossen-slib",label:"Lossen slib/RKG"},
+  {id:"lossen-bouwafval",label:"Lossen isolatieparels"},
+  {id:"laden-grind",label:"Laden grind"},
+  {id:"laden-zand",label:"Laden zand"},
+];
+const GRONDSTOFFEN = ["Grind 16/32 (schoon)","Grind 30/60 (schoon)","Grind (vervuild)","Grond (schoon)","Grond (vervuild)","RKG-slib","RKG-zand","Veegvuil","Bouw- en sloopafval","Isolatieparels","Vloerenzand","Anders (vermeld in mail)"];
+
+let state = { tab:"lossen-grind", pos:null, ton:15, retour:false, sorteer:"goedkoopst", vervuild:"schoon", open:null, asnOpen:null, kopieOk:false, voertuig:"zuigwagen" };
+let asnData = { werk:"", kenteken:"", grondstof:"" };
+
+function haversine(a,b){
+  const R=6371, r=x=>x*Math.PI/180;
+  const dLat=r(b.lat-a.lat), dLng=r(b.lng-a.lng);
+  const h=Math.sin(dLat/2)**2+Math.cos(r(a.lat))*Math.cos(r(b.lat))*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
+function reistijdMin(km){ if(km<0.5) return 0; const v = km<15?38 : km<40?52 : 63; return km/v*60+6; }
+const eur = n => "€ "+n.toLocaleString("nl-NL",{maximumFractionDigits:0});
+const eur2 = n => "€ "+n.toLocaleString("nl-NL",{minimumFractionDigits:2,maximumFractionDigits:2});
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+
+function standaardGrondstof(l){
+  if(state.tab==="lossen-grond") return l.vervuild?"Grond (vervuild)":"Grond (schoon)";
+  if(state.tab==="lossen-grind") return l.vervuild?"Grind (vervuild)":"Grind 16/32 (schoon)";
+  if(state.tab==="lossen-slib") return "RKG-slib";
+  if(state.tab==="lossen-bouwafval") return "Isolatieparels";
+  return "";
+}
+
+function asnTekst(l){
+  const g = asnData.grondstof || standaardGrondstof(l);
+  const onderwerp = "Aanvraag afvalstroomnummer (ASN) - "+METHORST.naam;
+  const regels = [
+    "Geachte heer/mevrouw,",
+    "",
+    "Hierbij vragen wij een afvalstroomnummer (ASN) aan voor het aanleveren van materiaal op uw locatie "+l.naam+" te "+l.plaats+".",
+    "",
+    "GEGEVENS AFVALSTROOM",
+    "Afvalstof / materiaal: "+g,
+    "Geschatte hoeveelheid: "+state.ton+" "+(l.m3?"m³":"ton"),
+    "Locatie van herkomst (werklocatie): "+asnData.werk,
+    "",
+    "ONTDOENER",
+    METHORST.naam,
+    METHORST.adres,
+    METHORST.pc,
+    "KvK: "+METHORST.kvk,
+    "BTW: "+METHORST.btw,
+    "",
+    "TRANSPORTEUR",
+    METHORST.naam+" (eigen vervoer)",
+    "VIHB-nummer: "+METHORST.vihb,
+    "Voertuig: "+((VOERTUIGEN.find(v=>v.id===state.voertuig)||VOERTUIGEN[0]).label),
+    "Kenteken voertuig: "+asnData.kenteken.toUpperCase(),
+    "",
+    "CONTACT",
+    "Tel: "+METHORST.tel,
+    "E-mail: "+METHORST.mail,
+    "Facturen: "+METHORST.mailFacturen,
+    "",
+    "Graag ontvangen wij het afvalstroomnummer zo spoedig mogelijk, zodat onze chauffeur kan lossen.",
+    "",
+    "Met vriendelijke groet,",
+    METHORST.naam,
+    METHORST.tel
+  ];
+  return { onderwerp, tekst: regels.join("\n") };
+}
+
+function valideerAsn(){
+  const fouten = [];
+  if(!asnData.werk.trim()) fouten.push("werk");
+  if(!asnData.kenteken.trim()) fouten.push("kenteken");
+  return fouten;
+}
+
+function vraagGps(){
+  const knop=document.getElementById("gpsknop"), fout=document.getElementById("gpsfout");
+  knop.textContent="…"; fout.style.display="none";
+  const klaar=()=>{ knop.textContent="◎ GPS"; };
+  const toonFout=(msg)=>{ klaar(); fout.textContent=msg; fout.style.display="block"; render(); };
+  if(!window.isSecureContext){
+    toonFout("GPS werkt alleen via een beveiligde https-link (bijv. jouw github.io-adres). Kies hieronder een plaats.");
+    return;
+  }
+  if(!navigator.geolocation){
+    toonFout("Deze browser ondersteunt geen GPS. Kies hieronder een plaats.");
+    return;
+  }
+  const ok=p=>{ state.pos={lat:p.coords.latitude,lng:p.coords.longitude}; klaar();
+    document.getElementById("startpunt").value="GPS — huidige locatie"; render(); };
+  const fail=e=>{
+    if(e && e.code===1) toonFout("Locatietoestemming geweigerd. Zet locatie aan voor deze site (slotje naast het webadres → Rechten → Locatie) en probeer opnieuw, of kies een plaats.");
+    else toonFout("GPS-signaal niet gevonden. Zet locatie (GPS) aan op je telefoon en probeer opnieuw, of kies een plaats.");
+  };
+  // Eerste poging nauwkeurig, tweede poging sneller/globaler
+  navigator.geolocation.getCurrentPosition(ok, ()=>{
+    navigator.geolocation.getCurrentPosition(ok, fail, {enableHighAccuracy:false, timeout:20000, maximumAge:600000});
+  }, {enableHighAccuracy:true, timeout:10000});
+}
+
+function init(){
+  const vt=document.getElementById("voertuigen");
+  VOERTUIGEN.forEach(v=>{
+    const b=document.createElement("button"); b.textContent=v.label; b.dataset.id=v.id;
+    b.onclick=()=>{ state.voertuig=v.id; render(); };
+    vt.appendChild(b);
+  });
+  const tabs=document.getElementById("tabs");
+  TABS.forEach(t=>{
+    const b=document.createElement("button"); b.textContent=t.label;
+    b.onclick=()=>{ state.tab=t.id; state.open=null; state.asnOpen=null; render(); };
+    b.dataset.id=t.id; tabs.appendChild(b);
+  });
+  const sel=document.getElementById("startpunt");
+  const ph=document.createElement("option"); ph.textContent="Waar sta je nu?"; ph.disabled=true; ph.selected=true; ph.value=""; sel.appendChild(ph);
+  STARTPUNTEN.forEach(s=>{ const o=document.createElement("option"); o.value=s.naam; o.textContent=s.naam; sel.appendChild(o); });
+  sel.onchange=()=>{
+    const s=STARTPUNTEN.find(x=>x.naam===sel.value); if(!s) return;
+    if(s.gps){ vraagGps(); return; }
+    state.pos={lat:s.lat,lng:s.lng}; render();
+  };
+  document.getElementById("gpsknop").onclick=vraagGps;
+  document.getElementById("tonmin").onclick=()=>{ state.ton=Math.max(1,state.ton-1); render(); };
+  document.getElementById("tonplus").onclick=()=>{ state.ton++; render(); };
+  document.getElementById("retour").onclick=()=>{ state.retour=!state.retour; render(); };
+  const sc=document.getElementById("sorteerchips");
+  [["goedkoopst","Goedkoopst totaal"],["dichtstbij","Dichtstbij"]].forEach(([v,l])=>{
+    const b=document.createElement("button"); b.className="chip"; b.textContent=l; b.dataset.v=v;
+    b.onclick=()=>{ state.sorteer=v; render(); }; sc.appendChild(b);
+  });
+  const vc=document.getElementById("vervuildchips");
+  [["schoon","Schoon"],["vervuild","Vervuild"],["alles","Alles"]].forEach(([v,l])=>{
+    const b=document.createElement("button"); b.className="chip"; b.textContent=l; b.dataset.v=v;
+    b.onclick=()=>{ state.vervuild=v; render(); }; vc.appendChild(b);
+  });
+  vraagGps();
+  render();
+}
+
+function render(){
+  document.querySelectorAll("#voertuigen button").forEach(b=>b.classList.toggle("actief",b.dataset.id===state.voertuig));
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("actief",b.dataset.id===state.tab));
+  document.querySelectorAll("#sorteerchips .chip").forEach(b=>b.classList.toggle("aan",b.dataset.v===state.sorteer));
+  document.querySelectorAll("#vervuildchips .chip").forEach(b=>b.classList.toggle("aan",b.dataset.v===state.vervuild));
+  document.getElementById("vervuildchips").style.display = state.tab==="lossen-grind" ? "flex" : "none";
+  document.getElementById("tonw").textContent = state.ton+" t";
+  const r=document.getElementById("retour");
+  r.classList.toggle("aan",state.retour);
+  r.textContent=(state.retour?"✓ ":"")+"Retour meerekenen";
+
+  const main=document.getElementById("lijst");
+  if(!state.pos){ main.innerHTML='<div class="leeg">Kies een startpunt of gebruik GPS.</div>'; return; }
+
+  let items=LOCATIES.filter(l=>l.cat===state.tab);
+  if(state.tab==="lossen-grind"){
+    if(state.vervuild==="schoon") items=items.filter(l=>!l.vervuild);
+    if(state.vervuild==="vervuild") items=items.filter(l=>l.vervuild);
+  }
+  const uurtarief = (VOERTUIGEN.find(v=>v.id===state.voertuig)||VOERTUIGEN[0]).tarief;
+  const rijen=items.map(l=>{
+    const km=haversine(state.pos,l)*1.3;
+    const tijd=reistijdMin(km);
+    const transport=tijd/60*uurtarief*(state.retour?2:1);
+    const stort=l.prijs!=null?l.prijs*state.ton:null;
+    const aanvoerKosten=l.aanvoer!=null?l.aanvoer*state.ton:null;
+    const totaal=stort!=null?transport+stort+(aanvoerKosten||0):null;
+    const oudTarief = !l.bron && !l.eigen && l.prijs!=null;
+    return {...l,km,tijd,transport,stort,aanvoerKosten,totaal,oudTarief};
+  });
   const rang = l => l.totaal==null ? 2 : (l.oudTarief ? 1 : 0);
   rijen.sort((a,b)=>{
     // Drie lagen: (0) gecheckt met prijs, (1) oud tarief met prijs, (2) prijs onbekend onderaan
